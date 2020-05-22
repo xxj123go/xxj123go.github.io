@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+
+
+<script id="hexo-configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    hostname: new URL('http://www.ispanner.cn').hostname,
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.7.0',
+    exturl: false,
+    sidebar: {"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},
+    copycode: {"enable":false,"show_result":false,"style":null},
+    back2top: {"enable":true,"sidebar":false,"scrollpercent":false},
+    bookmark: {"enable":false,"color":"#222","save":"auto"},
+    fancybox: false,
+    mediumzoom: false,
+    lazyload: false,
+    pangu: false,
+    comments: {"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},
+    algolia: {
+      appID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    },
+    localsearch: {"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},
+    path: '',
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}
+  };
+</script>
+
+  <meta name="description" content="FULL BACKUPS  The innobackupex program is a symlink to the xtrabackup C program. It lets you perform point-in-time backups of InnoDB &#x2F; XtraDB tables together with the schema definitions, MyISAM tables">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于 xtrabackup 的各种备份流程">
+<meta property="og:url" content="http://www.ispanner.cn/2020/05/22/%E5%9F%BA%E4%BA%8E%20xtrabackup%20%E7%9A%84%E5%90%84%E7%A7%8D%E5%A4%87%E4%BB%BD%E6%B5%81%E7%A8%8B/index.html">
+<meta property="og:site_name" content="AskDBA">
+<meta property="og:description" content="FULL BACKUPS  The innobackupex program is a symlink to the xtrabackup C program. It lets you perform point-in-time backups of InnoDB &#x2F; XtraDB tables together with the schema definitions, MyISAM tables">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-05-22T08:31:39.669Z">
+<meta property="article:modified_time" content="2020-05-22T08:31:07.878Z">
+<meta property="article:author" content="xxj123go">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://www.ispanner.cn/2020/05/22/%E5%9F%BA%E4%BA%8E%20xtrabackup%20%E7%9A%84%E5%90%84%E7%A7%8D%E5%A4%87%E4%BB%BD%E6%B5%81%E7%A8%8B/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome: false,
+    isPost: true
+  };
+</script>
+
+  <title>基于 xtrabackup 的各种备份流程 | AskDBA</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-meta">
+
+    <div>
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">AskDBA</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+        <p class="site-subtitle">技术自留田</p>
+  </div>
+
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+</div>
+
+
+<nav class="site-nav">
+  
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-fw fa-user"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-fw fa-tags"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-fw fa-th"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+
+</nav>
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content">
+            
+
+  <div class="posts-expand">
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block " lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://www.ispanner.cn/2020/05/22/%E5%9F%BA%E4%BA%8E%20xtrabackup%20%E7%9A%84%E5%90%84%E7%A7%8D%E5%A4%87%E4%BB%BD%E6%B5%81%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/qq_avatar.jpg">
+      <meta itemprop="name" content="xxj123go">
+      <meta itemprop="description" content="log something about tech">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="AskDBA">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于 xtrabackup 的各种备份流程
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+              
+
+              <time title="创建时间：2020-05-22 16:31:39 / 修改时间：16:31:07" itemprop="dateCreated datePublished" datetime="2020-05-22T16:31:39+08:00">2020-05-22</time>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="FULL-BACKUPS">FULL BACKUPS</h2>
+<blockquote>
+<p>The <strong>innobackupex</strong> program is a symlink to the xtrabackup C program. It lets you perform point-in-time backups<br>
+of InnoDB / XtraDB tables together with the schema definitions, MyISAM tables, and other portions of the server. In previous versions <strong>innobackupex</strong> was implemented as a Perl script.</p>
+<p>Warning:   The <strong>innobackupex</strong> program is deprecated. Please switch to <strong>xtrabackup</strong></p>
+</blockquote>
+<h3 id="Creating-a-backup">Creating a backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --backup --target-dir=/data/backups/</span><br></pre></td></tr></table></figure>
+<h3 id="Preparing-a-backup">Preparing a backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --prepare --target-dir=/data/backups/</span><br></pre></td></tr></table></figure>
+<h3 id="Restoring-a-Backup">Restoring a Backup</h3>
+<p>有三种方式</p>
+<ol>
+<li>
+<pre><code class="language-bash">#将备份文件拷贝到 datadir
+xtrabackup --copy-back --target-dir=/data/backups/  
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">2. &#96;&#96;&#96;bash</span><br><span class="line">   #将备份文件移动到 datadir</span><br><span class="line">   xtrabackup --move-back --target-dir&#x3D;&#x2F;data&#x2F;backups&#x2F;</span><br></pre></td></tr></table></figure>
+
+</code></pre>
+</li>
+<li>
+<pre><code class="language-bash">rsync -avrP /data/backup/ /var/lib/mysql/  
+chown -R mysql:mysql /var/lib/mysql
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"></span><br><span class="line">## Incremental Backup  </span><br><span class="line"></span><br><span class="line">### Creating an Incremental Backup  </span><br><span class="line"></span><br><span class="line">&#96;&#96;&#96;bash</span><br><span class="line">#先创建一个全备</span><br><span class="line">xtrabackup --backup --target-dir&#x3D;&#x2F;data&#x2F;backups&#x2F;base  </span><br><span class="line"></span><br><span class="line">#第一次增备</span><br><span class="line">xtrabackup --backup --target-dir&#x3D;&#x2F;data&#x2F;backups&#x2F;inc1 --incremental-basedir&#x3D;&#x2F;data&#x2F;backups&#x2F;base</span><br><span class="line"> </span><br><span class="line">#第二次增备</span><br><span class="line">xtrabackup --backup --target-dir&#x3D;&#x2F;data&#x2F;backups&#x2F;inc2 --incremental-basedir&#x3D;&#x2F;data&#x2F;backups&#x2F;inc1</span><br></pre></td></tr></table></figure>
+
+</code></pre>
+</li>
+</ol>
+<p>每次的进度信息可以查看 xtrabackup_checkpoints 文件</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">cat xtrabackup_checkpoints</span><br><span class="line"></span><br><span class="line">backup_type = incremental</span><br><span class="line">from_lsn = 4124244</span><br><span class="line">to_lsn = 6938371</span><br><span class="line">last_lsn = 7110572</span><br><span class="line">compact = 0</span><br><span class="line">recover_binlog_info = 1</span><br></pre></td></tr></table></figure>
+<h3 id="Preparing-the-Incremental-Backup">Preparing the Incremental Backup</h3>
+<p>前面的备份会生成如下文件夹</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">/data/backups/base</span><br><span class="line">/data/backups/inc1</span><br><span class="line">/data/backups/inc2</span><br></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># prepare the base backup</span></span><br><span class="line">xtrabackup --prepare --apply-log-only --target-dir=/data/backups/base  </span><br><span class="line"></span><br><span class="line"><span class="comment"># apply the first incremental backup to the full backup</span></span><br><span class="line">xtrabackup --prepare --apply-log-only --target-dir=/data/backups/base  --incremental-dir=/data/backups/inc1</span><br><span class="line"></span><br><span class="line"><span class="comment"># Preparing the second incremental backup </span></span><br><span class="line">xtrabackup --prepare --target-dir=/data/backups/base --incremental-dir=/data/backups/inc2</span><br></pre></td></tr></table></figure>
+<p>重要提示：在 merge 所有的增备文件的时候，除了最后一次操作，其他都需要指定 --apply-log-only 参数。</p>
+<p>因为 --prepare  做了两个操作，一是提交该提交的事务，而是回滚该回滚的事务，–apply-log-only 是说不回滚当前log 里的事务，因为这些事务可能正在进行中，还没结束。</p>
+<p>文档原文是：</p>
+<blockquote>
+<p>The <strong>xtrabackup --prepare</strong> step for incremental backups is not the same as for full backups. In full backups,<br>
+two types of operations are performed to make the database consistent: committed transactions are replayed from the log file against the data files, and uncommitted transactions are rolled back. You must skip the rollback of uncommitted transactions when preparing an incremental backup, because transactions that were uncommitted at the time of your backup may be in progress, and it’s likely that they will be committed in the next incremental backup. You should use the <strong>xtrabackup --apply-log-only</strong> option to prevent the rollback phase.</p>
+</blockquote>
+<h2 id="COMPRESSED-BACKUP">COMPRESSED BACKUP</h2>
+<h3 id="Creating-Compressed-Backups">Creating Compressed Backups</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --backup --compress --target-dir=/data/compressed/  </span><br><span class="line"></span><br><span class="line"><span class="comment">#或</span></span><br><span class="line">xtrabackup --backup --compress --compress-threads=4 --target-dir=/data/compressed/</span><br></pre></td></tr></table></figure>
+<h3 id="Preparing-the-backup">Preparing the backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># prepare 之前要先解压</span></span><br><span class="line">xtrabackup --decompress --target-dir=/data/compressed/  </span><br><span class="line"><span class="comment">#可以增加 --parallel 参数加快速度</span></span><br><span class="line">xtrabackup --decompress --parallel --target-dir=/data/compressed/  </span><br><span class="line"><span class="comment">#可以增加 --remove-original 移除压缩文件(默认解压不删除压缩文件)</span></span><br><span class="line">xtrabackup --decompress --parallel --remove-original --target-dir=/data/compressed/  </span><br><span class="line"></span><br><span class="line">xtrabackup --prepare --target-dir=/data/compressed/</span><br></pre></td></tr></table></figure>
+<h3 id="Restoring-the-backup">Restoring the backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --copy-back --target-dir=/data/backups/</span><br><span class="line">chown -R mysql:mysql /var/lib/mysql</span><br></pre></td></tr></table></figure>
+<h2 id="Partial-Backups">Partial Backups</h2>
+<blockquote>
+<p>部分备份的前置条件：开启了 innodb_file_per_table  ，下面的实验假设 有个 test 库，里面有 t1 ，t2 两张表</p>
+</blockquote>
+<h3 id="Creating-a-backup-2">Creating a backup</h3>
+<h4 id="使用-xtrabackup-tables">使用  xtrabackup --tables</h4>
+<p>这种方式只支持正则匹配</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 备份 test 库的所有表</span></span><br><span class="line"> xtrabackup --backup --datadir=/var/lib/mysql --target-dir=/data/backups/ --tables=<span class="string">"^test[.].*"</span></span><br><span class="line"> </span><br><span class="line"><span class="comment"># 备份 test.t1</span></span><br><span class="line"> xtrabackup --backup --datadir=/var/lib/mysql --target-dir=/data/backups/ --tables=<span class="string">"^test[.]t1"</span></span><br></pre></td></tr></table></figure>
+<h4 id="xtrabackup-tables-file">xtrabackup --tables-file</h4>
+<p>这种方式只支持 databasename.tablename   方式，大小写敏感，不支持正则写法</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ <span class="built_in">echo</span> <span class="string">"mydatabase.mytable"</span> &gt; /tmp/tables.txt</span><br><span class="line">$ xtrabackup --backup --tables-file=/tmp/tables.txt</span><br></pre></td></tr></table></figure>
+<h4 id="xtrabackup-databases-and-xtrabackup-databases-file">xtrabackup --databases and xtrabackup --databases-file</h4>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># xtrabackup --databases 只接受空格分隔的 databasename[.tablename] 形式的库表，而且需要额外备份 mysql, sys, performance_schema  三个库，用于 xtrabackup --copy-back 使用。</span></span><br><span class="line">xtrabackup --databases=<span class="string">'mysql sys performance_schema ...'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># xtrabackup --databases-file 指定 databasename[.tablename] 形式的库表，每个一换行</span></span><br></pre></td></tr></table></figure>
+<h3 id="Preparing-the-Backup">Preparing the Backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 还是常规的备份方式  </span></span><br><span class="line">xtrabackup --prepare --<span class="built_in">export</span></span><br></pre></td></tr></table></figure>
+<p>如果看到如下的 warnings about tables that don’t exist   日志是正常的。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">InnoDB: Reading tablespace information from the .ibd files...</span><br><span class="line">101107 22:31:30 InnoDB: Error: table <span class="string">'test1/t'</span></span><br><span class="line">InnoDB: <span class="keyword">in</span> InnoDB data dictionary has tablespace id 6,</span><br><span class="line">InnoDB: but tablespace with that id or name does not exist. It will be removed from</span><br><span class="line">˓→data dictionary.</span><br></pre></td></tr></table></figure>
+<h2 id="Advanced-Features">Advanced Features</h2>
+<h3 id="Throttling-Backups">Throttling Backups</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --throttle</span><br></pre></td></tr></table></figure>
+<p>–throttle=#<br>
+This option limits the number of chunks copied per second. The chunk size is 10 MB. To limit the bandwidth to<br>
+10 MB/s, set the option to 1: –throttle=1.</p>
+<h2 id="Point-In-Time-recovery">Point-In-Time recovery</h2>
+<blockquote>
+<p>基于时间点你的恢复(使用 innobackupex ，虽然已经标记为弃用状态，但官方没有提供 xtrabackup 方案)</p>
+<p>原理：全备+binlog</p>
+</blockquote>
+<h3 id="全备一次">全备一次</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ innobackupex /path/to/backup --no-timestamp</span><br><span class="line">$ innobackupex --apply-log /path/to/backup</span><br></pre></td></tr></table></figure>
+<h3 id="获取备份文件的点位信息">获取备份文件的点位信息</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看备份时间点的位点信息</span></span><br><span class="line">$ cat /path/to/backup/xtrabackup_binlog_info</span><br><span class="line">mysql-bin.000003      57</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看系统当前 binlog 文件列表</span></span><br><span class="line">mysql&gt; SHOW BINARY LOGS;</span><br><span class="line">+------------------+-----------+</span><br><span class="line">| Log_name         | File_size |</span><br><span class="line">+------------------+-----------+</span><br><span class="line">| mysql-bin.000001 |       126 |</span><br><span class="line">| mysql-bin.000002 |      1306 |</span><br><span class="line">| mysql-bin.000003 |       126 |</span><br><span class="line">| mysql-bin.000004 |       497 |</span><br><span class="line">+------------------+-----------+</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看当前位点信息</span></span><br><span class="line">mysql&gt; SHOW MASTER STATUS;</span><br><span class="line">+------------------+----------+--------------+------------------+</span><br><span class="line">| File             | Position | Binlog_Do_DB | Binlog_Ignore_DB |</span><br><span class="line">+------------------+----------+--------------+------------------+</span><br><span class="line">| mysql-bin.000004 |      497 |              |                  |</span><br><span class="line">+------------------+----------+--------------+------------------+</span><br></pre></td></tr></table></figure>
+<h3 id="将备份文件回写">将备份文件回写</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ innobackupex --copy-back /path/to/backup</span><br><span class="line">-- 此时新系统位点信息为 mysql-bin.000003  57</span><br></pre></td></tr></table></figure>
+<h3 id="导出新产生的binlog">导出新产生的binlog</h3>
+<p>导出新产生的binlog，确定下一步的恢复时间点</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ mysqlbinlog /path/to/datadir/mysql-bin.000003 /path/to/datadir/mysql-bin.000004 --start-position=57 &gt; mybinlog.sql</span><br></pre></td></tr></table></figure>
+<h3 id="恢复">恢复</h3>
+<p>指定需要恢复的时间点(–stop-datetime)</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ mysqlbinlog /path/to/datadir/mysql-bin.000003 /path/to/datadir/mysql-bin.000004 --start-position=57 --stop-datetime=<span class="string">"11-12-25 01:00:00"</span> | mysql -u root -p</span><br><span class="line">-- (不能加 --base64-output=<span class="string">'DECODE-ROWS'</span> -vv)</span><br></pre></td></tr></table></figure>
+<h2 id="innobackupex">innobackupex</h2>
+<blockquote>
+<p>新版本已经移除，简单了解。</p>
+</blockquote>
+<h3 id="Full-Backup">Full Backup</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># backup</span></span><br><span class="line">innobackupex --defaults-file=/tmp/other-my.cnf --user=DBUSER --password=DBUSERPASS /path/to/BACKUP-DIR/</span><br><span class="line"></span><br><span class="line"><span class="comment"># preparing </span></span><br><span class="line">innobackupex --apply-log /path/to/BACKUP-DIR</span><br><span class="line"></span><br><span class="line"><span class="comment">#restore</span></span><br><span class="line">innobackupex --copy-back /path/to/BACKUP-DIR</span><br><span class="line">or</span><br><span class="line">scp &amp;&amp; chown -R mysql:mysql /var/lib/mysql</span><br></pre></td></tr></table></figure>
+<h3 id="Incremental-Backup">Incremental  Backup</h3>
+<h4 id="Creating-a-backup-3">Creating a backup</h4>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#full backup</span></span><br><span class="line">innobackupex /data/backups </span><br><span class="line">-- 假设生成 /data/backups/2013-03-31_23-01-18 ,称为 BASEDIR.</span><br><span class="line"></span><br><span class="line"><span class="comment"># incremental 1  </span></span><br><span class="line">innobackupex --incremental /data/backups --incremental-basedir=BASEDIR</span><br><span class="line">-- 假设生成 /data/backups/2013-04-01_23-01-18 ,称为 INCREMENTAL-DIR-1.</span><br><span class="line"></span><br><span class="line"><span class="comment"># incremental 2</span></span><br><span class="line">innobackupex --incremental /data/backups --incremental-basedir=INCREMENTAL-DIR-1</span><br><span class="line">-- 假设生成 /data/backups/2013-04-02_23-01-18 ,称为 INCREMENTAL-DIR-2.</span><br></pre></td></tr></table></figure>
+<h4 id="Restoring-a-Backup-2">Restoring a Backup</h4>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">innobackupex --apply-log --redo-only BASE-DIR</span><br><span class="line">innobackupex --apply-log --redo-only BASE-DIR --incremental-dir=INCREMENTAL-DIR-1</span><br><span class="line">innobackupex --apply-log BASE-DIR --incremental-dir=INCREMENTAL-DIR-2</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>Note: <strong>innobackupex --redo-only</strong> should be used when merging all incrementals except the last one. That’s<br>
+why the previous line doesn’t contain the <strong>innobackupex --redo-only</strong> option. Even if the   <strong>innobackupex</strong><br>
+<strong>–redo-only</strong> was used on the last step, backup would still be consistent but in that case server would perform the rollback phase.</p>
+</blockquote>
+<p>Once you merge the base with all the increments, you can prepare it to roll back the uncommitted transactions:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">innobackupex --apply-log BASE-DIR</span><br></pre></td></tr></table></figure>
+<h4 id="Restoring">Restoring</h4>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --copy-back --target-dir=BASE-DIR</span><br><span class="line"></span><br><span class="line"><span class="comment">#如果压缩过，需要先解压</span></span><br><span class="line">xtrabackup --decompress --target-dir=BASE-DIR</span><br><span class="line">xtrabackup --copy-back --target-dir=BASE-DIR</span><br></pre></td></tr></table></figure>
+<h2 id="常用备份命令">常用备份命令</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --defaults-file=/etc/my_3911.cnf --host=10.204.11.75 --user=dba --password=<span class="string">"dba@2019"</span> --port=3911 --backup --parallel=4   --target-dir=/data0/backup/20200518/</span><br></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xtrabackup --defaults-file=/etc/my_3605.cnf --prepare --<span class="built_in">export</span>  --user=dba --password=<span class="string">"dba@2019"</span> --host=10.204.11.65 --port=3605 --tables=<span class="string">"^queue_leju_com[.]queue$"</span> --target-dir=/data0/20200520_q</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/05/22/%E4%BD%BF%E7%94%A8%20xtrabackup%20%E5%9C%A8%E7%BA%BF%E6%90%AD%E5%BB%BA%20slave/" rel="prev" title="使用 xtrabackup 在线搭建 slave">
+      <i class="fa fa-chevron-left"></i> 使用 xtrabackup 在线搭建 slave
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+  </div>
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let activeClass = CONFIG.comments.activeClass;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#FULL-BACKUPS"><span class="nav-number">1.</span> <span class="nav-text">FULL BACKUPS</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Creating-a-backup"><span class="nav-number">1.1.</span> <span class="nav-text">Creating a backup</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Preparing-a-backup"><span class="nav-number">1.2.</span> <span class="nav-text">Preparing a backup</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Restoring-a-Backup"><span class="nav-number">1.3.</span> <span class="nav-text">Restoring a Backup</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Preparing-the-Incremental-Backup"><span class="nav-number">1.4.</span> <span class="nav-text">Preparing the Incremental Backup</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#COMPRESSED-BACKUP"><span class="nav-number">2.</span> <span class="nav-text">COMPRESSED BACKUP</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Creating-Compressed-Backups"><span class="nav-number">2.1.</span> <span class="nav-text">Creating Compressed Backups</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Preparing-the-backup"><span class="nav-number">2.2.</span> <span class="nav-text">Preparing the backup</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Restoring-the-backup"><span class="nav-number">2.3.</span> <span class="nav-text">Restoring the backup</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Partial-Backups"><span class="nav-number">3.</span> <span class="nav-text">Partial Backups</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Creating-a-backup-2"><span class="nav-number">3.1.</span> <span class="nav-text">Creating a backup</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#使用-xtrabackup-tables"><span class="nav-number">3.1.1.</span> <span class="nav-text">使用  xtrabackup --tables</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#xtrabackup-tables-file"><span class="nav-number">3.1.2.</span> <span class="nav-text">xtrabackup --tables-file</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#xtrabackup-databases-and-xtrabackup-databases-file"><span class="nav-number">3.1.3.</span> <span class="nav-text">xtrabackup --databases and xtrabackup --databases-file</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Preparing-the-Backup"><span class="nav-number">3.2.</span> <span class="nav-text">Preparing the Backup</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Advanced-Features"><span class="nav-number">4.</span> <span class="nav-text">Advanced Features</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Throttling-Backups"><span class="nav-number">4.1.</span> <span class="nav-text">Throttling Backups</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Point-In-Time-recovery"><span class="nav-number">5.</span> <span class="nav-text">Point-In-Time recovery</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#全备一次"><span class="nav-number">5.1.</span> <span class="nav-text">全备一次</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#获取备份文件的点位信息"><span class="nav-number">5.2.</span> <span class="nav-text">获取备份文件的点位信息</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#将备份文件回写"><span class="nav-number">5.3.</span> <span class="nav-text">将备份文件回写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#导出新产生的binlog"><span class="nav-number">5.4.</span> <span class="nav-text">导出新产生的binlog</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#恢复"><span class="nav-number">5.5.</span> <span class="nav-text">恢复</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#innobackupex"><span class="nav-number">6.</span> <span class="nav-text">innobackupex</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Full-Backup"><span class="nav-number">6.1.</span> <span class="nav-text">Full Backup</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Incremental-Backup"><span class="nav-number">6.2.</span> <span class="nav-text">Incremental  Backup</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Creating-a-backup-3"><span class="nav-number">6.2.1.</span> <span class="nav-text">Creating a backup</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Restoring-a-Backup-2"><span class="nav-number">6.2.2.</span> <span class="nav-text">Restoring a Backup</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Restoring"><span class="nav-number">6.2.3.</span> <span class="nav-text">Restoring</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#常用备份命令"><span class="nav-number">7.</span> <span class="nav-text">常用备份命令</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="xxj123go"
+      src="/images/qq_avatar.jpg">
+  <p class="site-author-name" itemprop="name">xxj123go</p>
+  <div class="site-description" itemprop="description">log something about tech</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">6</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/yourname" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;yourname" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">xxj123go</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> 强力驱动 v4.2.0
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
